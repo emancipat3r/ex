@@ -18,8 +18,8 @@ func main() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "ex <netns> <command> [args...]",
-	Short: "Run a command inside a Linux network namespace",
+	Use:                "ex <netns> <command> [args...]",
+	Short:              "Run a command inside a Linux network namespace",
 	Long: `ex is a small helper that runs a command inside a given Linux
 network namespace.
 
@@ -27,8 +27,17 @@ Example:
   ex vps ip a
   ex vps curl https://ifconfig.io
   ex myns bash`,
-	Args: cobra.MinimumNArgs(2),
+	DisableFlagParsing: true,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Handle help manually since DisableFlagParsing is set
+		if len(args) < 2 {
+			cmd.Help()
+			if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+				return
+			}
+			os.Exit(1)
+		}
+
 		nsName := args[0]
 		cmdName := args[1]
 		cmdArgs := []string{}
