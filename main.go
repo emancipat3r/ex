@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/vishvananda/netns"
+	"golang.org/x/sys/unix"
 )
 
 func main() {
@@ -45,13 +47,22 @@ Example:
 			cmdArgs = args[2:]
 		}
 
-		// Save original namespace so we can restore it
-		origNS, err := netns.Get()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error getting current netns: %v\n", err)
-			os.Exit(1)
+		// Bind-mount per-netns resolv.conf if it exists
+		netnsResolvConf := filepath.Join("/etc/netns", nsName, "resolv.conf")
+		if _, err := os.Stat(netnsResolvConf); err == nil {
+			if err := unix.Unshare(unix.CLONE_NEWNS); err != nil {
+				fmt.Fprintf(os.Stderr, "error unsharing mount namespace: %v\n", err)
+				os.Exit(1)
+			}
+			if err := unix.Mount("", "/", "", unix.MS_PRIVATE|unix.MS_REC, ""); err != nil {
+				fmt.Fprintf(os.Stderr, "error making mounts private: %v\n", err)
+				os.Exit(1)
+			}
+			if err := unix.Mount(netnsResolvConf, "/etc/resolv.conf", "", unix.MS_BIND, ""); err != nil {
+				fmt.Fprintf(os.Stderr, "error bind-mounting %s: %v\n", netnsResolvConf, err)
+				os.Exit(1)
+			}
 		}
-		defer origNS.Close()
 
 		// Open target namespace
 		targetNS, err := netns.GetFromName(nsName)
@@ -66,10 +77,6 @@ Example:
 			fmt.Fprintf(os.Stderr, "error switching to netns %q: %v\n", nsName, err)
 			os.Exit(1)
 		}
-		// Restore original NS on exit
-		defer func() {
-			_ = netns.Set(origNS)
-		}()
 
 		// Run the requested command
 		child := exec.Command(cmdName, cmdArgs...)
